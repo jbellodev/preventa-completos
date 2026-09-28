@@ -210,6 +210,12 @@
           <strong>Cantidad total de este tipo</strong>
           <div class="stepper"><button type="button" id="qtyMinus">−</button><span id="qtyVal">1</span><button type="button" id="qtyPlus">+</button></div>
         </div>
+        <div id="builderTipoWrap" style="display:none;">
+          <label class="field-label">¿A quién representa este pedido?</label>
+          <select id="builderTipo"><option value="">Selecciona...</option></select>
+          <div class="field-error" id="errBuilderTipo"></div>
+          <div id="builderSubWrap" style="display:none;"><label class="field-label" id="builderSubLabel">Detalle</label><select id="builderSub"></select><div class="field-error" id="errBuilderSub"></div></div>
+        </div>
         <button type="button" class="btn-add" id="btnAddCart">+ Agregar al carrito</button>
         <div class="cart-title">Tu pedido</div>
         <div id="cartList"><p class="cart-empty" id="cartEmpty">Aún no has agregado completos.</p></div>
@@ -295,7 +301,7 @@
 </div>
 
 <script>
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwcf32REjs8IBJMmdQ3N9SSuvFg3JZN75hj-fXjh3QshymcXDHcmEOkeUWhZlnrtq3cWw/exec";
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzPVc42sCPVmeSzaTrHRiXJlUYla91zJXR18agmqJ_2g7jRuQqDJbsV87sEG9ondFADcg/exec";
 
   // ------------------------------------------------------------------------
   //  Configuración: se pide en vivo al Apps Script (que a su vez la lee de
@@ -310,7 +316,7 @@
       logo: { type: api.logo.tipo === "imagen" ? "image" : "text", value: api.logo.valor }, bannerImage: api.bannerUrl || null,
       colors: api.colores, price: api.precioBase,
       priceRules: (api.reglasPrecio || []).map(r => ({ ingredientes: r.ingredientes, precio: r.precio })),
-      pedidosAbiertos: !!api.abierto,
+      pedidosAbiertos: !!api.abierto, pedirPersonas: api.pedirPersonas !== false,
       temporizador: { activo: api.temporizador.activo, fechaLimite: api.temporizador.fechaLimite, horaLimite: api.temporizador.horaLimite },
       zonaHoraria: api.temporizador.zona || "America/Santiago",
       instructionsHtml: api.instruccionesHtml, paymentNoteHtml: api.notaPagoHtml || "",
@@ -433,20 +439,47 @@
   }
   renderPaymentInfo();
 
-  const assignTipoSel = document.getElementById("assignTipo");
-  CONFIG.tiposPersona.forEach(t => { const o = document.createElement("option"); o.value = t.nombre; o.textContent = t.nombre; assignTipoSel.appendChild(o); });
-  const assignSubSel = document.getElementById("assignSub");
-  assignSubSel.addEventListener("change", () => updateAssignStatus());
-  assignTipoSel.addEventListener("change", (e) => {
-    const tipoObj = CONFIG.tiposPersona.find(t => t.nombre === e.target.value);
-    const wrap = document.getElementById("assignSubWrap");
+  // MODO SIMPLE: cuando Config.pedir_datos_personas = NO, el tipo/curso se elige junto con la cantidad
+  // (dentro de "Arma tu pedido") y se salta por completo la pantalla de RUT/nombre por persona.
+  const modoSimple = !CONFIG.pedirPersonas;
+
+  function llenarTipos(sel) { CONFIG.tiposPersona.forEach(t => { const o = document.createElement("option"); o.value = t.nombre; o.textContent = t.nombre; sel.appendChild(o); }); }
+  function manejarCambioTipo(valorTipo, wrapId, labelId, subSel) {
+    const tipoObj = CONFIG.tiposPersona.find(t => t.nombre === valorTipo);
+    const wrap = document.getElementById(wrapId);
     if (tipoObj && tipoObj.subOpciones && tipoObj.subOpciones.length) {
-      document.getElementById("assignSubLabel").textContent = tipoObj.subEtiqueta || "Detalle";
-      assignSubSel.innerHTML = '<option value="">Selecciona...</option>' + tipoObj.subOpciones.map(o => `<option value="${o}">${o}</option>`).join("");
+      document.getElementById(labelId).textContent = tipoObj.subEtiqueta || "Detalle";
+      subSel.innerHTML = '<option value="">Selecciona...</option>' + tipoObj.subOpciones.map(o => `<option value="${o}">${o}</option>`).join("");
       wrap.style.display = "block";
     } else { wrap.style.display = "none"; }
-    updateAssignStatus();
-  });
+  }
+
+  const assignTipoSel = document.getElementById("assignTipo");
+  llenarTipos(assignTipoSel);
+  const assignSubSel = document.getElementById("assignSub");
+  assignSubSel.addEventListener("change", () => updateAssignStatus());
+  assignTipoSel.addEventListener("change", (e) => { manejarCambioTipo(e.target.value, "assignSubWrap", "assignSubLabel", assignSubSel); updateAssignStatus(); });
+
+  const builderTipoSel = document.getElementById("builderTipo");
+  const builderSubSel = document.getElementById("builderSub");
+  if (modoSimple) {
+    document.getElementById("builderTipoWrap").style.display = "block";
+    llenarTipos(builderTipoSel);
+    builderSubSel.addEventListener("change", () => validarBuilderTipo());
+    builderTipoSel.addEventListener("change", (e) => { manejarCambioTipo(e.target.value, "builderSubWrap", "builderSubLabel", builderSubSel); validarBuilderTipo(); });
+  }
+  function validarBuilderTipo() {
+    const tipo = builderTipoSel.value;
+    const tipoObj = CONFIG.tiposPersona.find(t => t.nombre === tipo);
+    const necesitaSub = tipoObj && tipoObj.subOpciones && tipoObj.subOpciones.length;
+    const errTipo = document.getElementById("errBuilderTipo");
+    const faltaTipo = !tipo; errTipo.textContent = faltaTipo ? "Falta seleccionar a quién representa" : ""; errTipo.classList.toggle("show", faltaTipo);
+    const errSub = document.getElementById("errBuilderSub");
+    const faltaSub = tipo && necesitaSub && !builderSubSel.value;
+    errSub.textContent = faltaSub ? `Falta seleccionar ${((tipoObj && tipoObj.subEtiqueta) || "una opción").toLowerCase()}` : "";
+    errSub.classList.toggle("show", faltaSub);
+    return !faltaTipo && !faltaSub;
+  }
 
   function getPrice(ids) { const key = ids.slice().sort().join(","); const r = CONFIG.priceRules.find(r => r.ingredientes.slice().sort().join(",") === key); return r ? r.precio : CONFIG.price; }
 
@@ -472,9 +505,32 @@
   let asignaciones = [];
   let editingIndex = null;
 
+  function volverABuilderSimple() {
+    editingIndex = null;
+    builderQty = 1; document.getElementById("qtyVal").textContent = 1;
+    CONFIG.ingredientes.forEach(ing => { builderState[ing.id] = ing.default; });
+    ingList.querySelectorAll("input[data-ing]").forEach(inp => { inp.checked = builderState[inp.dataset.ing]; });
+    builderTipoSel.value = ""; document.getElementById("builderSubWrap").style.display = "none";
+    document.getElementById("errBuilderTipo").textContent = ""; document.getElementById("errBuilderTipo").classList.remove("show");
+    document.getElementById("errBuilderSub").textContent = ""; document.getElementById("errBuilderSub").classList.remove("show");
+  }
+
   document.getElementById("btnAddCart").addEventListener("click", () => {
     const seleccion = CONFIG.ingredientes.filter(i => !i.fijo && builderState[i.id]).map(i => i.id);
     pendingCombo = { ingredientes: seleccion, etiqueta: labelFor(seleccion), precio: getPrice(seleccion), cantidadTotal: builderQty };
+    if (modoSimple) {
+      if (!validarBuilderTipo()) return;
+      const necesitaSub = document.getElementById("builderSubWrap").style.display === "block";
+      const nuevoItem = {
+        id: editingIndex !== null ? cart[editingIndex].id : uid(),
+        ingredientes: pendingCombo.ingredientes, etiqueta: pendingCombo.etiqueta, precio: pendingCombo.precio,
+        cantidad: pendingCombo.cantidadTotal, tipo: builderTipoSel.value, detalle: necesitaSub ? builderSubSel.value : "",
+        asignaciones: [{ rut: "", nombre: "", correo: "", telefono: "", cantidad: pendingCombo.cantidadTotal }]
+      };
+      if (editingIndex !== null) cart[editingIndex] = nuevoItem; else cart.push(nuevoItem);
+      volverABuilderSimple(); renderCart(); validateStep();
+      return;
+    }
     asignaciones = [{ id: uid(), rut: "", nombre: "", correo: "", telefono: "", cantidad: builderQty }];
     abrirAssignBlock();
   });
@@ -655,7 +711,7 @@
     const wrap = document.getElementById("cartList"); wrap.innerHTML = "";
     if (cart.length === 0) { wrap.innerHTML = '<p class="cart-empty" id="cartEmpty">Aún no has agregado completos.</p>'; }
     cart.forEach((item, idx) => {
-      const personas = item.asignaciones.map(a => `${a.cantidad}× ${a.nombre || a.rut}`).join(", ");
+      const personas = modoSimple ? "" : item.asignaciones.map(a => `${a.cantidad}× ${a.nombre || a.rut}`).join(", ");
       const div = document.createElement("div"); div.className = "cart-item";
       div.innerHTML = `
         <div class="row1">
@@ -664,7 +720,7 @@
           <button class="iconbtn" data-act="edit" data-idx="${idx}" type="button" title="Editar">✎</button>
           <button class="iconbtn" data-act="del" data-idx="${idx}" type="button" title="Quitar" style="color:var(--state-pendiente);">✕</button>
         </div>
-        <div class="people">${personas}</div>
+        ${personas ? `<div class="people">${personas}</div>` : ""}
         <div class="tag">${item.tipo}${item.detalle ? " · " + item.detalle : ""}</div>`;
       wrap.appendChild(div);
     });
@@ -674,6 +730,14 @@
       if (btn.dataset.act === "edit") {
         editingIndex = i; const item = cart[i];
         pendingCombo = { ingredientes: item.ingredientes, etiqueta: item.etiqueta, precio: item.precio, cantidadTotal: item.cantidad };
+        if (modoSimple) {
+          builderQty = item.cantidad; document.getElementById("qtyVal").textContent = builderQty;
+          CONFIG.ingredientes.forEach(ing => { builderState[ing.id] = ing.fijo ? true : item.ingredientes.includes(ing.id); });
+          ingList.querySelectorAll("input[data-ing]").forEach(inp => { inp.checked = builderState[inp.dataset.ing]; });
+          builderTipoSel.value = item.tipo; builderTipoSel.dispatchEvent(new Event("change"));
+          if (item.detalle) builderSubSel.value = item.detalle;
+          return;
+        }
         asignaciones = item.asignaciones.map(a => ({ id: uid(), ...a }));
         abrirAssignBlock();
         document.getElementById("assignTipo").value = item.tipo;
@@ -815,7 +879,10 @@
         const archivos = await Promise.all(archivosAdjuntos.map(async f => ({ nombre: f.name, mime: f.type, base64: await archivoABase64_(f) })));
         const payload = {
           pagador: { nombre: document.getElementById("nombre").value.trim(), telefono: document.getElementById("telefono").value.trim(), correo: document.getElementById("correo").value.trim() },
-          carrito: cart.map(it => ({ ingredientes: it.ingredientes, cantidad: it.cantidad, tipo: it.tipo, detalle: it.detalle, asignaciones: it.asignaciones })),
+          // Si algún grupo quedó sin RUT ni nombre (modo simple, sin pedir datos por persona), se completa
+          // con el nombre de quien paga — así el pedido siempre queda identificado a alguien.
+          carrito: cart.map(it => ({ ingredientes: it.ingredientes, cantidad: it.cantidad, tipo: it.tipo, detalle: it.detalle,
+            asignaciones: it.asignaciones.map(a => (a.rut.trim() || a.nombre.trim()) ? a : Object.assign({}, a, { nombre: document.getElementById("nombre").value.trim() })) })),
           archivos
         };
         const r = await enviarPedido_(payload);
