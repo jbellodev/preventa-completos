@@ -307,7 +307,7 @@
   function mapearConfig_(api) {
     return {
       brandName: api.organizacion, title: api.titulo, subtitle: api.subtitulo,
-      logo: { type: api.logo.tipo, value: api.logo.valor }, bannerImage: api.bannerUrl || null,
+      logo: { type: api.logo.tipo === "imagen" ? "image" : "text", value: api.logo.valor }, bannerImage: api.bannerUrl || null,
       colors: api.colores, price: api.precioBase,
       priceRules: (api.reglasPrecio || []).map(r => ({ ingredientes: r.ingredientes, precio: r.precio })),
       pedidosAbiertos: !!api.abierto,
