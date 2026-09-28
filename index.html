@@ -282,6 +282,7 @@
 </div>
 
 <script>
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzPVc42sCPVmeSzaTrHRiXJlUYla91zJXR18agmqJ_2g7jRuQqDJbsV87sEG9ondFADcg/exec";
   // Ubicación: se define aparte porque se combina dentro del texto de instrucciones de abajo.
   const UBICACION = { entidad: "Colegio Pan American College", direccion: "Llano Subercaseaux 3653, Santiago" };
 
@@ -755,7 +756,7 @@
 
   let lastOrderNumber = ""; let lastOrderDate = "";
 
-  // Cuadro de confirmación propio (los confirm()/alert() nativos quedan bloqueados dentro del visor de la página)
+// Cuadro de confirmación propio (los confirm()/alert() nativos quedan bloqueados dentro del visor de la página)
   function pedirConfirmacion({ titulo, mensaje, textoSi = "SÍ", textoNo = "NO", peligro = false, soloAceptar = false }) {
     return new Promise(resolve => {
       const ov = document.getElementById("modalOverlay");
@@ -778,15 +779,47 @@
       const totalPedido = fmt(cart.reduce((s, it) => s + it.precio * it.cantidad, 0));
       const acepta = await pedirConfirmacion({ titulo: "¿Confirmas tu pedido?", mensaje: `Vas a realizar tu pedido por ${totalPedido}. No podrás editarlo después de enviarlo.` });
       if (!acepta) return;
+
       const now = new Date();
-      lastOrderNumber = generarNumeroPedido(now); lastOrderDate = formatFechaHora(now);
+      lastOrderNumber = generarNumeroPedido(now); 
+      lastOrderDate = formatFechaHora(now);
+
+      // --- ENVÍO DE DATOS A GOOGLE APPS SCRIPT ---
+      try {
+        fetch(SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'pedido',
+            payload: {
+              numero: lastOrderNumber,
+              fecha: lastOrderDate,
+              pagador: {
+                nombre: document.getElementById("nombre").value,
+                telefono: document.getElementById("telefono").value,
+                correo: document.getElementById("correo").value
+              },
+              cart: cart
+            }
+          })
+        });
+      } catch (err) {
+        console.error("Error al enviar el pedido:", err);
+      }
+      // -------------------------------------------
+
       document.getElementById("orderNumber").textContent = lastOrderNumber;
       document.getElementById("orderDate").textContent = lastOrderDate;
-      current = 4; showStep(current); history.replaceState(null, "", location.pathname); return;
+      current = 4; 
+      showStep(current); 
+      history.replaceState(null, "", location.pathname); 
+      return;
     }
     if (current === 2) renderSummary();
     if (current < 3) { current++; showStep(current); }
   });
+
   document.getElementById("btnBack").addEventListener("click", () => { if (current > 0) { current--; showStep(current); } });
   document.getElementById("btnCancelOrder").addEventListener("click", async () => {
     const acepta = await pedirConfirmacion({ titulo: "¿Cancelar el pedido?", mensaje: "Se perderá todo lo que ingresaste. ¿Estás seguro?", peligro: true });
@@ -878,12 +911,8 @@
     doc.text("Total a pagar", 50, y + 4);
     doc.text(fmt(cart.reduce((s, it) => s + it.precio * it.cantidad, 0)), 545, y + 4, { align: "right" });
 
-    const blob = doc.output("blob");
-    try {
-      const downloads = await claude.use("downloads");
-      if (!downloads) { await pedirConfirmacion({ titulo: "Descarga no disponible", mensaje: "La descarga de archivos no está disponible en esta vista.", textoSi: "Entendido", soloAceptar: true }); return; }
-      await downloads.save({ filename: `comprobante-pedido-${lastOrderNumber}.pdf`, data: blob });
-    } catch (e) {}
+    // Descarga directa compatible con todos los navegadores
+    doc.save(`comprobante-pedido-${lastOrderNumber}.pdf`);
   });
 
   renderCart();
